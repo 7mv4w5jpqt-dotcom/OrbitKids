@@ -26,8 +26,10 @@ struct SolarSystemView: View {
     private let uranusPeriodDays: Double = 30687.0
     private let neptunePeriodDays: Double = 60190.0
 
-    // Simulationsgeschwindigkeit
-    private let daysPerSecond: Double = 8
+    // Logarithmische Simulationsgeschwindigkeit
+    @State private var logSpeed: Double = log(8)   // Start bei 8×
+    private let minLogSpeed: Double = log(1)       // 1 Tag pro Sekunde
+    private let maxLogSpeed: Double = log(500)     // 500×
 
     @State private var zoom: CGFloat = 1.0
     @State private var focus: FocusTarget = .sun
@@ -47,9 +49,23 @@ struct SolarSystemView: View {
     @State private var showStartSequence = true
     private let visibleMovementThreshold: Double = 3.0
 
-    var body: some View {
+    // Dynamische Höhe des Button-Bereichs
+    @State private var buttonAreaHeight: CGFloat = 0
 
+    var body: some View {
         GeometryReader { geo in
+
+            // Safe Areas
+            let safeTop = geo.safeAreaInsets.top
+            let safeBottom = geo.safeAreaInsets.bottom
+
+            // Bereich zwischen Statusbar und Buttons
+            let topLimit = safeTop
+            let bottomLimit = geo.size.height - buttonAreaHeight - safeBottom
+
+            // Optische Mitte des freien Bereichs
+            let visualCenterY = (topLimit + bottomLimit) / 2
+
             let center = CGPoint(x: geo.size.width / 2,
                                  y: geo.size.height / 2)
 
@@ -59,22 +75,25 @@ struct SolarSystemView: View {
 
             ZStack {
 
-                // ---------------------------------------------------------
-                // STARTSEQUENZ (überlagert alles)
-                // ---------------------------------------------------------
+                // STARTSEQUENZ
                 if showStartSequence {
-                    ContentView()   // <- DEIN Startscreen
+                    ContentView()
                         .transition(.opacity)
                         .zIndex(10)
                 }
 
-                // ---------------------------------------------------------
-                // 1) Zoombarer Inhalt
-                // ---------------------------------------------------------
-                ZoomableSolarSystemView(zoom: $zoom) {
+                // ZOOM + SPEED + PAN
+                ZoomableSolarSystemView(
+                    zoom: $zoom,
+                    logSpeed: $logSpeed,
+                    minLogSpeed: minLogSpeed,
+                    maxLogSpeed: maxLogSpeed
+                ) {
                     solarSystemContent(center: center, simDays: simDays)
-                        .offset(x: center.x - focusPos.x + panAccum.width / max(zoom, 0.0001),
-                                y: center.y - focusPos.y + panAccum.height / max(zoom, 0.0001))
+                        .offset(
+                            x: center.x - focusPos.x + panAccum.width / max(zoom, 0.0001),
+                            y: visualCenterY - focusPos.y + panAccum.height / max(zoom, 0.0001)
+                        )
                         .scaleEffect(zoom)
                         .animation(.easeInOut(duration: 0.8), value: focus)
                 }
@@ -96,12 +115,11 @@ struct SolarSystemView: View {
                 )
                 .background(Color.black.ignoresSafeArea())
 
-                // ---------------------------------------------------------
-                // 2) UI-Overlay
-                // ---------------------------------------------------------
+                // UI-Overlay
                 VStack {
                     Spacer()
 
+                    // Buttons (dynamisch gemessen)
                     WrapLayout(spacing: 12) {
                         ForEach(FocusTarget.allCases, id: \.self) { target in
                             Button {
@@ -116,7 +134,10 @@ struct SolarSystemView: View {
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(Color.white.opacity(focus == target ? 0.45 : 0.25), lineWidth: 1)
+                                            .stroke(
+                                                Color.white.opacity(focus == target ? 0.85 : 0.25),
+                                                lineWidth: focus == target ? 2.2 : 1
+                                            )
                                     )
                                     .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
                                     .foregroundColor(.white)
@@ -125,7 +146,19 @@ struct SolarSystemView: View {
                         }
                     }
                     .padding(.horizontal, 20)
+                    .background(
+                        GeometryReader { buttonGeo in
+                            Color.clear
+                                .onAppear {
+                                    buttonAreaHeight = buttonGeo.size.height + 24
+                                }
+                                .onChange(of: buttonGeo.size.height) { _, newValue in
+                                    buttonAreaHeight = newValue + 24
+                                }
+                        }
+                    )
 
+                    // Tag-Anzeige
                     Text("Tag \(Int(simDays.truncatingRemainder(dividingBy: 365))) von 365")
                         .font(.headline.monospacedDigit())
                         .foregroundColor(.white)
@@ -142,12 +175,8 @@ struct SolarSystemView: View {
                 }
             }
         }
-        .onAppear {
-            startDisplayLink()
-        }
-        .onDisappear {
-            displayLink?.invalidate()
-        }
+        .onAppear { startDisplayLink() }
+        .onDisappear { displayLink?.invalidate() }
         .onChange(of: simDays) { _, newValue in
             if showStartSequence && newValue > visibleMovementThreshold {
                 withAnimation(.easeOut(duration: 1.0)) {
@@ -173,6 +202,7 @@ struct SolarSystemView: View {
         accumulator += clamped
 
         while accumulator >= fixedDT {
+            let daysPerSecond = exp(logSpeed)
             simDays += daysPerSecond * fixedDT
             accumulator -= fixedDT
         }
@@ -362,10 +392,9 @@ struct SolarSystemView: View {
             y: center.y + saturnOrbitRadius * CGFloat(sin(angle))
         )
 
-        // Ring parameters
         let outerWidth: CGFloat = 128
         let outerHeight: CGFloat = 30
-        let innerScale: CGFloat = 0.60 // 0.0 < innerScale < 1.0 (inner diameter relative to outer)
+        let innerScale: CGFloat = 0.60
         let tilt: Angle = .degrees(26.7)
 
         let ringGradient = LinearGradient(
@@ -380,18 +409,16 @@ struct SolarSystemView: View {
         )
 
         return ZStack {
-            // Back half of rings (behind the planet)
             AnnulusShape(innerScale: innerScale)
                 .fill(ringGradient, style: FillStyle(eoFill: true))
                 .overlay(
                     AnnulusShape(innerScale: innerScale)
                         .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
                 )
-                .clipShape(TopHalf()) // clip before rotation so the split follows the ring's local minor axis
+                .clipShape(TopHalf())
                 .rotationEffect(tilt)
                 .frame(width: outerWidth, height: outerHeight)
 
-            // Planet body
             LitBodyView(
                 radius: 14,
                 bodyColor: Color(red: 0.9, green: 0.8, blue: 0.6),
@@ -399,7 +426,6 @@ struct SolarSystemView: View {
                 bodyPosition: pos
             )
 
-            // Front half of rings (in front of the planet)
             AnnulusShape(innerScale: innerScale)
                 .fill(ringGradient, style: FillStyle(eoFill: true))
                 .overlay(
@@ -436,14 +462,11 @@ class DisplayLinkProxy {
 // MARK: - Helpers for Saturn's rings
 
 private struct AnnulusShape: Shape {
-    // Inner diameter relative to outer diameter (0 < innerScale < 1)
     var innerScale: CGFloat
 
     func path(in rect: CGRect) -> Path {
         var p = Path()
-        // Outer ellipse uses the provided rect
         p.addEllipse(in: rect)
-        // Inner ellipse is scaled down and subtracted using even-odd fill
         let dx = rect.width * (1 - innerScale) / 2
         let dy = rect.height * (1 - innerScale) / 2
         let innerRect = rect.insetBy(dx: dx, dy: dy)
@@ -463,7 +486,14 @@ private struct TopHalf: Shape {
 private struct BottomHalf: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
-        p.addRect(CGRect(x: 0, y: rect.height / 2, width: rect.width, height: rect.height / 2))
+        p.addRect(
+            CGRect(
+                x: 0,
+                y: rect.height / 2,
+                width: rect.width,
+                height: rect.height / 2
+            )
+        )
         return p
     }
 }
