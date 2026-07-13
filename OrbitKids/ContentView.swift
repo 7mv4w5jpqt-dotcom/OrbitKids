@@ -164,7 +164,6 @@ struct RootView: View {
             case .loading:
                 LoadingView()
             case .ready:
-                // Your main content once the app is ready
                 SolarSystemView()
                     .background(Color.black)
                     .ignoresSafeArea()

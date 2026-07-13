@@ -6,14 +6,14 @@ struct SolarSystemView: View {
 
     // Orbit-Radien
     private let mercuryOrbitRadius: CGFloat = 90
-    private let venusOrbitRadius: CGFloat = 150
-    private let earthOrbitRadius: CGFloat = 210
-    private let moonOrbitRadius: CGFloat = 40
-    private let marsOrbitRadius: CGFloat = 270
-    private let jupiterOrbitRadius: CGFloat = 430
-    private let saturnOrbitRadius: CGFloat = 520
-    private let uranusOrbitRadius: CGFloat = 620
-    private let neptuneOrbitRadius: CGFloat = 700
+    private let venusOrbitRadius: CGFloat = 165
+    private let earthOrbitRadius: CGFloat = 230
+    private let moonOrbitRadius: CGFloat = 32
+    private let marsOrbitRadius: CGFloat = 350
+    private let jupiterOrbitRadius: CGFloat = 470
+    private let saturnOrbitRadius: CGFloat = 570
+    private let uranusOrbitRadius: CGFloat = 675
+    private let neptuneOrbitRadius: CGFloat = 760
 
     // Umlaufzeiten (in Tagen)
     private let earthPeriodDays: Double = 365.0
@@ -47,10 +47,13 @@ struct SolarSystemView: View {
 
     // Startsequenz
     @State private var showStartSequence = true
+    @State private var showGestureHelp = false
+    @AppStorage("hasSeenGestureHelp") private var hasSeenGestureHelp = false
     private let visibleMovementThreshold: Double = 3.0
 
     // Dynamische Höhe des Button-Bereichs
     @State private var buttonAreaHeight: CGFloat = 0
+    @State private var mouseControlRepeatTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { geo in
@@ -121,6 +124,49 @@ struct SolarSystemView: View {
 
                     // Buttons (dynamisch gemessen)
                     WrapLayout(spacing: 12) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(controlBlue)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                            .offset(y: -5)
+                            .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
+                            .onTapGesture {
+                                showGestureHelp = true
+                            }
+                            .accessibilityLabel("Gestensteuerung anzeigen")
+                            .accessibilityAddTraits(.isButton)
+
+                        #if targetEnvironment(macCatalyst)
+                        catalystMouseButton(
+                            systemImage: "minus.magnifyingglass",
+                            accessibilityLabel: "Herauszoomen"
+                        ) {
+                            adjustZoom(by: 0.85)
+                        }
+
+                        catalystMouseButton(
+                            systemImage: "plus.magnifyingglass",
+                            accessibilityLabel: "Hineinzoomen"
+                        ) {
+                            adjustZoom(by: 1.18)
+                        }
+
+                        catalystMouseButton(
+                            systemImage: "backward.fill",
+                            accessibilityLabel: "Simulation verlangsamen"
+                        ) {
+                            adjustSpeed(by: -0.35)
+                        }
+
+                        catalystMouseButton(
+                            systemImage: "forward.fill",
+                            accessibilityLabel: "Simulation beschleunigen"
+                        ) {
+                            adjustSpeed(by: 0.35)
+                        }
+                        #endif
+
                         ForEach(FocusTarget.allCases, id: \.self) { target in
                             Button {
                                 select(target)
@@ -173,15 +219,149 @@ struct SolarSystemView: View {
                         .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
                         .padding(.bottom, 16)
                 }
+
+                if showGestureHelp {
+                    gestureHelpOverlay
+                        .zIndex(20)
+                }
             }
         }
         .onAppear { startDisplayLink() }
-        .onDisappear { displayLink?.invalidate() }
+        .onDisappear {
+            displayLink?.invalidate()
+            #if targetEnvironment(macCatalyst)
+            stopMouseControlRepeat()
+            #endif
+        }
         .onChange(of: simDays) { _, newValue in
             if showStartSequence && newValue > visibleMovementThreshold {
                 withAnimation(.easeOut(duration: 1.0)) {
                     showStartSequence = false
                 }
+
+                if !hasSeenGestureHelp {
+                    showGestureHelp = true
+                    hasSeenGestureHelp = true
+                }
+            }
+        }
+    }
+
+    private var controlBlue: Color {
+        Color(red: 0.18, green: 0.45, blue: 0.90)
+    }
+
+    #if targetEnvironment(macCatalyst)
+    private func catalystMouseButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 28, weight: .semibold))
+            .foregroundStyle(controlBlue)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .offset(y: -5)
+            .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        startMouseControlRepeat(action)
+                    }
+                    .onEnded { _ in
+                        stopMouseControlRepeat()
+                    }
+            )
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityAddTraits(.isButton)
+    }
+    #endif
+
+    private var gestureHelpOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    showGestureHelp = false
+                }
+
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Gestensteuerung")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.black)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    gestureHelpRow(
+                        icon: "hand.draw.fill",
+                        title: "Verschieben",
+                        detail: "Mit einem Finger oder Maus ziehen."
+                    )
+                    gestureHelpRow(
+                        icon: "arrow.up.and.down",
+                        title: "Geschwindigkeit ändern",
+                        detail: "Mit zwei Fingern nach oben oder unten ziehen."
+                    )
+                    gestureHelpRow(
+                        icon: "arrow.down.left.and.arrow.up.right",
+                        title: "Zoom ändern",
+                        detail: "Mit zwei Fingern nach innen oder außen bewegen."
+                    )
+                    gestureHelpRow(
+                        icon: "scope",
+                        title: "Fokus ändern",
+                        detail: "Ein Gestirn antippen oder unten einen Namen wählen."
+                    )
+
+                    #if targetEnvironment(macCatalyst)
+                    gestureHelpRow(
+                        icon: "cursorarrow",
+                        title: "Ohne Trackpad",
+                        detail: "Die kleinen Maus-Buttons unten ändern Zoom und Geschwindigkeit."
+                    )
+                    #endif
+                }
+
+                Button {
+                    showGestureHelp = false
+                } label: {
+                    Text("Verstanden")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.gray.opacity(0.22))
+                .foregroundStyle(.black)
+                .padding(.top, 4)
+            }
+            .padding(22)
+            .frame(maxWidth: 420)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            )
+            .padding(.horizontal, 24)
+            .accessibilityAddTraits(.isModal)
+        }
+    }
+
+    private func gestureHelpRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(Color(red: 0.18, green: 0.45, blue: 0.90))
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.black.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -214,6 +394,35 @@ struct SolarSystemView: View {
         panBase = .zero
         panAccum = .zero
     }
+
+    private func adjustZoom(by factor: CGFloat) {
+        zoom = min(max(zoom * factor, 0.1), 3.0)
+    }
+
+    private func adjustSpeed(by delta: Double) {
+        logSpeed = min(max(logSpeed + delta, minLogSpeed), maxLogSpeed)
+    }
+
+    #if targetEnvironment(macCatalyst)
+    private func startMouseControlRepeat(_ action: @escaping () -> Void) {
+        guard mouseControlRepeatTask == nil else { return }
+
+        mouseControlRepeatTask = Task { @MainActor in
+            action()
+            try? await Task.sleep(nanoseconds: 300_000_000)
+
+            while !Task.isCancelled {
+                action()
+                try? await Task.sleep(nanoseconds: 90_000_000)
+            }
+        }
+    }
+
+    private func stopMouseControlRepeat() {
+        mouseControlRepeatTask?.cancel()
+        mouseControlRepeatTask = nil
+    }
+    #endif
 
     // MARK: - Sonnensystem Inhalt
 
@@ -497,3 +706,4 @@ private struct BottomHalf: Shape {
         return p
     }
 }
+
