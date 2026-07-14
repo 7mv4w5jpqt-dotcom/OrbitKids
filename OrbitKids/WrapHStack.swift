@@ -15,15 +15,16 @@ struct WrapLayout: Layout {
 
         for view in subviews {
             let size = view.sizeThatFits(.unspecified)
+            let proposedWidth = width == 0 ? size.width : width + spacing + size.width
 
-            if width + size.width > maxWidth {
-                width = 0
+            if proposedWidth > maxWidth {
+                width = size.width
                 height += rowHeight + spacing
-                rowHeight = 0
+                rowHeight = size.height
+            } else {
+                width = proposedWidth
+                rowHeight = max(rowHeight, size.height)
             }
-
-            width += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
 
         height += rowHeight
@@ -42,8 +43,9 @@ struct WrapLayout: Layout {
 
         for view in subviews {
             let size = view.sizeThatFits(.unspecified)
+            let proposedX = x == 0 ? size.width : x + spacing + size.width
 
-            if x + size.width > maxWidth {
+            if proposedX > maxWidth {
                 x = 0
                 y += rowHeight + spacing
                 rowHeight = 0
@@ -54,7 +56,7 @@ struct WrapLayout: Layout {
                 proposal: ProposedViewSize(size)
             )
 
-            x += size.width + spacing
+            x += x == 0 ? size.width : spacing + size.width
             rowHeight = max(rowHeight, size.height)
         }
     }

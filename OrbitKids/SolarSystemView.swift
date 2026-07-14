@@ -48,26 +48,15 @@ struct SolarSystemView: View {
     // Startsequenz
     @State private var showStartSequence = true
     @State private var showGestureHelp = false
+    @State private var showLanguagePicker = false
     @AppStorage("hasSeenGestureHelp") private var hasSeenGestureHelp = false
+    @AppStorage("selectedLanguage") private var selectedLanguageRawValue = AppLanguage.systemDefault.rawValue
     private let visibleMovementThreshold: Double = 3.0
 
-    // Dynamische Höhe des Button-Bereichs
-    @State private var buttonAreaHeight: CGFloat = 0
     @State private var mouseControlRepeatTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { geo in
-
-            // Safe Areas
-            let safeTop = geo.safeAreaInsets.top
-            let safeBottom = geo.safeAreaInsets.bottom
-
-            // Bereich zwischen Statusbar und Buttons
-            let topLimit = safeTop
-            let bottomLimit = geo.size.height - buttonAreaHeight - safeBottom
-
-            // Optische Mitte des freien Bereichs
-            let visualCenterY = (topLimit + bottomLimit) / 2
 
             let center = CGPoint(x: geo.size.width / 2,
                                  y: geo.size.height / 2)
@@ -75,12 +64,17 @@ struct SolarSystemView: View {
             let focusPos = positionOf(focus,
                                       simDays: simDays,
                                       center: center)
+            let safeZoom = max(zoom, 0.0001)
+            let focusOffset = CGSize(
+                width: panAccum.width / safeZoom + center.x - focusPos.x,
+                height: panAccum.height / safeZoom + center.y - focusPos.y
+            )
 
             ZStack {
 
                 // STARTSEQUENZ
                 if showStartSequence {
-                    ContentView()
+                    LoadingView()
                         .transition(.opacity)
                         .zIndex(10)
                 }
@@ -93,10 +87,8 @@ struct SolarSystemView: View {
                     maxLogSpeed: maxLogSpeed
                 ) {
                     solarSystemContent(center: center, simDays: simDays)
-                        .offset(
-                            x: center.x - focusPos.x + panAccum.width / max(zoom, 0.0001),
-                            y: visualCenterY - focusPos.y + panAccum.height / max(zoom, 0.0001)
-                        )
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .offset(focusOffset)
                         .scaleEffect(zoom)
                         .animation(.easeInOut(duration: 0.8), value: focus)
                 }
@@ -123,47 +115,60 @@ struct SolarSystemView: View {
                     Spacer()
 
                     // Buttons (dynamisch gemessen)
-                    WrapLayout(spacing: 12) {
+                    WrapLayout(spacing: bottomButtonSpacing) {
                         Image(systemName: "info.circle")
-                            .font(.system(size: 28, weight: .semibold))
+                            .font(.system(size: controlIconSize, weight: .semibold))
                             .foregroundStyle(controlBlue)
-                            .frame(width: 44, height: 44)
+                            .frame(width: controlIconFrameSize, height: controlIconFrameSize)
                             .contentShape(Rectangle())
-                            .offset(y: -5)
+                            .offset(y: controlIconVerticalOffset)
                             .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
                             .onTapGesture {
                                 showGestureHelp = true
                             }
-                            .accessibilityLabel("Gestensteuerung anzeigen")
+                            .accessibilityLabel(localizedText(.showGestureHelp))
+                            .accessibilityAddTraits(.isButton)
+
+                        Image(systemName: "globe")
+                            .font(.system(size: controlIconSize, weight: .semibold))
+                            .foregroundStyle(controlBlue)
+                            .frame(width: controlIconFrameSize, height: controlIconFrameSize)
+                            .contentShape(Rectangle())
+                            .offset(y: controlIconVerticalOffset)
+                            .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
+                            .onTapGesture {
+                                showLanguagePicker = true
+                            }
+                            .accessibilityLabel(localizedText(.chooseLanguage))
                             .accessibilityAddTraits(.isButton)
 
                         #if targetEnvironment(macCatalyst)
                         catalystMouseButton(
                             systemImage: "minus.magnifyingglass",
-                            accessibilityLabel: "Herauszoomen"
+                            accessibilityLabel: localizedText(.zoomOut)
                         ) {
-                            adjustZoom(by: 0.85)
+                            adjustZoom(by: 0.992)
                         }
 
                         catalystMouseButton(
                             systemImage: "plus.magnifyingglass",
-                            accessibilityLabel: "Hineinzoomen"
+                            accessibilityLabel: localizedText(.zoomIn)
                         ) {
-                            adjustZoom(by: 1.18)
+                            adjustZoom(by: 1.008)
                         }
 
                         catalystMouseButton(
                             systemImage: "backward.fill",
-                            accessibilityLabel: "Simulation verlangsamen"
+                            accessibilityLabel: localizedText(.slowDown)
                         ) {
-                            adjustSpeed(by: -0.35)
+                            adjustSpeed(by: -0.03)
                         }
 
                         catalystMouseButton(
                             systemImage: "forward.fill",
-                            accessibilityLabel: "Simulation beschleunigen"
+                            accessibilityLabel: localizedText(.speedUp)
                         ) {
-                            adjustSpeed(by: 0.35)
+                            adjustSpeed(by: 0.03)
                         }
                         #endif
 
@@ -171,8 +176,9 @@ struct SolarSystemView: View {
                             Button {
                                 select(target)
                             } label: {
-                                Text(target.rawValue)
-                                    .padding(.horizontal, 12)
+                                Text(target.displayName(for: currentLanguage))
+                                    .font(bottomButtonFont)
+                                    .padding(.horizontal, 7)
                                     .padding(.vertical, 6)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -190,39 +196,23 @@ struct SolarSystemView: View {
                             }
                             .focused($focusedTarget, equals: target)
                         }
+
+                        dayCounterView
                     }
                     .padding(.horizontal, 20)
-                    .background(
-                        GeometryReader { buttonGeo in
-                            Color.clear
-                                .onAppear {
-                                    buttonAreaHeight = buttonGeo.size.height + 24
-                                }
-                                .onChange(of: buttonGeo.size.height) { _, newValue in
-                                    buttonAreaHeight = newValue + 24
-                                }
-                        }
-                    )
 
-                    // Tag-Anzeige
-                    Text("Tag \(Int(simDays.truncatingRemainder(dividingBy: 365))) von 365")
-                        .font(.headline.monospacedDigit())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule().fill(Color.black.opacity(0.08))
-                        )
-                        .overlay(
-                            Capsule().stroke(Color.white.opacity(0.25), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
-                        .padding(.bottom, 16)
+                    Spacer()
+                        .frame(height: 12)
                 }
 
                 if showGestureHelp {
                     gestureHelpOverlay
                         .zIndex(20)
+                }
+
+                if showLanguagePicker {
+                    languagePickerOverlay
+                        .zIndex(21)
                 }
             }
         }
@@ -247,8 +237,115 @@ struct SolarSystemView: View {
         }
     }
 
+    private var currentLanguage: AppLanguage {
+        AppLanguage(rawValue: selectedLanguageRawValue) ?? .systemDefault
+    }
+
+    private var dayDisplayText: String {
+        let day = Int(simDays.truncatingRemainder(dividingBy: 365))
+        switch currentLanguage {
+        case .german:
+            return "Tag \(day) von 365"
+        case .english:
+            return "Day \(day) of 365"
+        case .spanish:
+            return "Día \(day) de 365"
+        case .french:
+            return "Jour \(day) sur 365"
+        case .italian:
+            return "Giorno \(day) di 365"
+        case .portuguese:
+            return "Dia \(day) de 365"
+        }
+    }
+
+    private var dayCounterMaxText: String {
+        switch currentLanguage {
+        case .german:
+            return "Tag 365 von 365"
+        case .english:
+            return "Day 365 of 365"
+        case .spanish:
+            return "Día 365 de 365"
+        case .french:
+            return "Jour 365 sur 365"
+        case .italian:
+            return "Giorno 365 di 365"
+        case .portuguese:
+            return "Dia 365 de 365"
+        }
+    }
+
     private var controlBlue: Color {
         Color(red: 0.18, green: 0.45, blue: 0.90)
+    }
+
+    private var bottomButtonSpacing: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        8
+        #else
+        4
+        #endif
+    }
+
+    private var bottomButtonFont: Font {
+        #if targetEnvironment(macCatalyst)
+        .body
+        #else
+        .subheadline
+        #endif
+    }
+
+    private var controlIconSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        28
+        #else
+        24
+        #endif
+    }
+
+    private var controlIconFrameSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        44
+        #else
+        30
+        #endif
+    }
+
+    private var controlIconVerticalOffset: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        -5
+        #else
+        0
+        #endif
+    }
+
+    private var dayCounterFont: Font {
+        #if targetEnvironment(macCatalyst)
+        .headline.monospacedDigit()
+        #else
+        .subheadline.monospacedDigit()
+        #endif
+    }
+
+    private var dayCounterView: some View {
+        ZStack {
+            Text(dayCounterMaxText)
+                .hidden()
+
+            Text(dayDisplayText)
+        }
+        .font(dayCounterFont)
+        .foregroundColor(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule().fill(Color.black.opacity(0.08))
+        )
+        .overlay(
+            Capsule().stroke(Color.white.opacity(0.25), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
     }
 
     #if targetEnvironment(macCatalyst)
@@ -278,6 +375,62 @@ struct SolarSystemView: View {
     }
     #endif
 
+    private func localizedText(_ key: LocalizedTextKey) -> String {
+        key.text(for: currentLanguage)
+    }
+
+    private var languagePickerOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    showLanguagePicker = false
+                }
+
+            VStack(alignment: .leading, spacing: 18) {
+                Text(localizedText(.chooseLanguage))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.black)
+
+                VStack(spacing: 8) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Button {
+                            selectedLanguageRawValue = language.rawValue
+                            showLanguagePicker = false
+                        } label: {
+                            HStack {
+                                Text(language.displayName)
+                                    .foregroundStyle(.black)
+                                Spacer()
+                                if language == currentLanguage {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(controlBlue)
+                                }
+                            }
+                            .font(.headline)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.gray.opacity(0.14))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 340)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            )
+            .padding(.horizontal, 24)
+            .accessibilityAddTraits(.isModal)
+        }
+    }
+
     private var gestureHelpOverlay: some View {
         ZStack {
             Color.black.opacity(0.55)
@@ -287,37 +440,34 @@ struct SolarSystemView: View {
                 }
 
             VStack(alignment: .leading, spacing: 18) {
-                Text("Gestensteuerung")
+                Text(localizedText(.gestureControlsTitle))
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.black)
 
                 VStack(alignment: .leading, spacing: 14) {
                     gestureHelpRow(
                         icon: "hand.draw.fill",
-                        title: "Verschieben",
-                        detail: "Mit einem Finger oder Maus ziehen."
+                        title: localizedText(.panTitle),
+                        detail: localizedText(.panDetail)
                     )
-                    gestureHelpRow(
-                        icon: "arrow.up.and.down",
-                        title: "Geschwindigkeit ändern",
-                        detail: "Mit zwei Fingern nach oben oder unten ziehen."
+                    speedGestureHelpRow(
+                        title: localizedText(.speedTitle),
+                        detail: localizedText(.speedDetail)
                     )
-                    gestureHelpRow(
-                        icon: "arrow.down.left.and.arrow.up.right",
-                        title: "Zoom ändern",
-                        detail: "Mit zwei Fingern nach innen oder außen bewegen."
+                    zoomGestureHelpRow(
+                        title: localizedText(.zoomTitle),
+                        detail: localizedText(.zoomDetail)
                     )
-                    gestureHelpRow(
-                        icon: "scope",
-                        title: "Fokus ändern",
-                        detail: "Ein Gestirn antippen oder unten einen Namen wählen."
+                    focusGestureHelpRow(
+                        title: localizedText(.focusTitle),
+                        detail: localizedText(.focusDetail)
                     )
 
                     #if targetEnvironment(macCatalyst)
                     gestureHelpRow(
                         icon: "cursorarrow",
-                        title: "Ohne Trackpad",
-                        detail: "Die kleinen Maus-Buttons unten ändern Zoom und Geschwindigkeit."
+                        title: localizedText(.withoutTrackpadTitle),
+                        detail: localizedText(.withoutTrackpadDetail)
                     )
                     #endif
                 }
@@ -325,7 +475,7 @@ struct SolarSystemView: View {
                 Button {
                     showGestureHelp = false
                 } label: {
-                    Text("Verstanden")
+                    Text(localizedText(.understood))
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
@@ -351,18 +501,99 @@ struct SolarSystemView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(Color(red: 0.18, green: 0.45, blue: 0.90))
+                .foregroundStyle(controlBlue)
                 .frame(width: 28, height: 28)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.black.opacity(0.72))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            gestureHelpText(title: title, detail: detail)
+        }
+    }
+
+    private func speedGestureHelpRow(title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            twoFingerSwipeUpIcon
+                .frame(width: 28, height: 28)
+
+            gestureHelpText(title: title, detail: detail)
+        }
+    }
+
+    private func zoomGestureHelpRow(title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            twoFingerZoomIcon
+                .frame(width: 28, height: 28)
+
+            gestureHelpText(title: title, detail: detail)
+        }
+    }
+
+    private func focusGestureHelpRow(title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            focusTapIcon
+                .frame(width: 28, height: 28)
+                .compositingGroup()
+
+            gestureHelpText(title: title, detail: detail)
+        }
+    }
+
+    private func gestureHelpText(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.black)
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(.black.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var focusTapIcon: some View {
+        ZStack {
+            Image(systemName: "scope")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(Color.gray.opacity(0.68))
+
+            Image(systemName: "hand.point.up.left.fill")
+                .font(.system(size: 21, weight: .regular))
+                .foregroundStyle(controlBlue)
+                .rotationEffect(.degrees(-18))
+                .offset(x: 9, y: 9)
+        }
+        .frame(width: 34, height: 34)
+    }
+
+    private var twoFingerSwipeUpIcon: some View {
+        HStack(spacing: -2) {
+            Image(systemName: "hand.draw.fill")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(controlBlue)
+                .scaleEffect(x: -1, y: 1)
+                .rotationEffect(.degrees(35))
+                .offset(x: 1, y: 1)
+
+            Image(systemName: "hand.draw.fill")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(controlBlue)
+                .rotationEffect(.degrees(-35))
+                .offset(x: -1, y: 1)
+        }
+    }
+
+    private var twoFingerZoomIcon: some View {
+        HStack(spacing: -2) {
+            Image(systemName: "hand.draw.fill")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(controlBlue)
+                .scaleEffect(x: -1, y: 1)
+                .rotationEffect(.degrees(-60))
+                .offset(x: 1, y: 1)
+
+            Image(systemName: "hand.draw.fill")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(controlBlue)
+                .rotationEffect(.degrees(70))
+                .offset(x: -1, y: 1)
         }
     }
 
@@ -408,12 +639,9 @@ struct SolarSystemView: View {
         guard mouseControlRepeatTask == nil else { return }
 
         mouseControlRepeatTask = Task { @MainActor in
-            action()
-            try? await Task.sleep(nanoseconds: 300_000_000)
-
             while !Task.isCancelled {
                 action()
-                try? await Task.sleep(nanoseconds: 90_000_000)
+                try? await Task.sleep(nanoseconds: 16_666_667)
             }
         }
     }
@@ -514,7 +742,7 @@ struct SolarSystemView: View {
         )
         .contentShape(Circle())
         .onTapGesture { select(target) }
-        .accessibilityLabel(target.rawValue)
+        .accessibilityLabel(target.displayName(for: currentLanguage))
         .accessibilityAddTraits(.isButton)
         .position(pos)
     }
@@ -649,9 +877,350 @@ struct SolarSystemView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { select(.saturn) }
-        .accessibilityLabel(FocusTarget.saturn.rawValue)
+        .accessibilityLabel(FocusTarget.saturn.displayName(for: currentLanguage))
         .accessibilityAddTraits(.isButton)
         .position(pos)
+    }
+}
+
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case german
+    case english
+    case spanish
+    case french
+    case italian
+    case portuguese
+
+    static var systemDefault: AppLanguage {
+        let languageCode = Locale.preferredLanguages.first?.prefix(2).lowercased()
+        switch languageCode {
+        case "en":
+            return .english
+        case "es":
+            return .spanish
+        case "fr":
+            return .french
+        case "it":
+            return .italian
+        case "pt":
+            return .portuguese
+        default:
+            return .german
+        }
+    }
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .german:
+            return "Deutsch"
+        case .english:
+            return "English"
+        case .spanish:
+            return "Español"
+        case .french:
+            return "Français"
+        case .italian:
+            return "Italiano"
+        case .portuguese:
+            return "Português"
+        }
+    }
+}
+
+enum LocalizedTextKey {
+    case chooseLanguage
+    case showGestureHelp
+    case gestureControlsTitle
+    case panTitle
+    case panDetail
+    case speedTitle
+    case speedDetail
+    case zoomTitle
+    case zoomDetail
+    case focusTitle
+    case focusDetail
+    case withoutTrackpadTitle
+    case withoutTrackpadDetail
+    case understood
+    case zoomOut
+    case zoomIn
+    case slowDown
+    case speedUp
+    case loading
+
+    func text(for language: AppLanguage) -> String {
+        switch self {
+        case .chooseLanguage:
+            switch language {
+            case .german: return "Sprache wählen"
+            case .english: return "Choose language"
+            case .spanish: return "Elegir idioma"
+            case .french: return "Choisir la langue"
+            case .italian: return "Scegli la lingua"
+            case .portuguese: return "Escolher idioma"
+            }
+        case .showGestureHelp:
+            switch language {
+            case .german: return "Gestensteuerung anzeigen"
+            case .english: return "Show gesture controls"
+            case .spanish: return "Mostrar controles de gestos"
+            case .french: return "Afficher les gestes"
+            case .italian: return "Mostra i gesti"
+            case .portuguese: return "Mostrar controles por gestos"
+            }
+        case .gestureControlsTitle:
+            switch language {
+            case .german: return "Gestensteuerung"
+            case .english: return "Gesture controls"
+            case .spanish: return "Controles gestuales"
+            case .french: return "Commandes gestuelles"
+            case .italian: return "Controlli gestuali"
+            case .portuguese: return "Controles por gestos"
+            }
+        case .panTitle:
+            switch language {
+            case .german: return "Verschieben"
+            case .english: return "Move"
+            case .spanish: return "Mover"
+            case .french: return "Déplacer"
+            case .italian: return "Spostare"
+            case .portuguese: return "Mover"
+            }
+        case .panDetail:
+            switch language {
+            case .german: return "Mit einem Finger oder Maus ziehen."
+            case .english: return "Drag with one finger or the mouse."
+            case .spanish: return "Arrastra con un dedo o con el ratón."
+            case .french: return "Fais glisser avec un doigt ou la souris."
+            case .italian: return "Trascina con un dito o con il mouse."
+            case .portuguese: return "Arraste com um dedo ou com o mouse."
+            }
+        case .speedTitle:
+            switch language {
+            case .german: return "Geschwindigkeit ändern"
+            case .english: return "Change speed"
+            case .spanish: return "Cambiar velocidad"
+            case .french: return "Changer la vitesse"
+            case .italian: return "Cambia velocità"
+            case .portuguese: return "Alterar velocidade"
+            }
+        case .speedDetail:
+            switch language {
+            case .german: return "Mit zwei Fingern nach oben oder unten ziehen."
+            case .english: return "Drag up or down with two fingers."
+            case .spanish: return "Arrastra hacia arriba o abajo con dos dedos."
+            case .french: return "Fais glisser deux doigts vers le haut ou le bas."
+            case .italian: return "Trascina su o giù con due dita."
+            case .portuguese: return "Arraste para cima ou para baixo com dois dedos."
+            }
+        case .zoomTitle:
+            switch language {
+            case .german: return "Zoom ändern"
+            case .english: return "Change zoom"
+            case .spanish: return "Cambiar zoom"
+            case .french: return "Changer le zoom"
+            case .italian: return "Cambia zoom"
+            case .portuguese: return "Alterar zoom"
+            }
+        case .zoomDetail:
+            switch language {
+            case .german: return "Mit zwei Fingern nach innen oder außen bewegen."
+            case .english: return "Move two fingers inward or outward."
+            case .spanish: return "Mueve dos dedos hacia dentro o hacia fuera."
+            case .french: return "Rapproche ou écarte deux doigts."
+            case .italian: return "Avvicina o allontana due dita."
+            case .portuguese: return "Aproxime ou afaste dois dedos."
+            }
+        case .focusTitle:
+            switch language {
+            case .german: return "Fokus ändern"
+            case .english: return "Change focus"
+            case .spanish: return "Cambiar enfoque"
+            case .french: return "Changer le focus"
+            case .italian: return "Cambia focus"
+            case .portuguese: return "Alterar foco"
+            }
+        case .focusDetail:
+            switch language {
+            case .german: return "Ein Gestirn antippen oder unten einen Namen wählen."
+            case .english: return "Tap a body or choose a name below."
+            case .spanish: return "Toca un astro o elige un nombre abajo."
+            case .french: return "Touche un astre ou choisis un nom en bas."
+            case .italian: return "Tocca un astro o scegli un nome in basso."
+            case .portuguese: return "Toque em um astro ou escolha um nome abaixo."
+            }
+        case .withoutTrackpadTitle:
+            switch language {
+            case .german: return "Ohne Trackpad"
+            case .english: return "Without a trackpad"
+            case .spanish: return "Sin trackpad"
+            case .french: return "Sans trackpad"
+            case .italian: return "Senza trackpad"
+            case .portuguese: return "Sem trackpad"
+            }
+        case .withoutTrackpadDetail:
+            switch language {
+            case .german: return "Die kleinen Maus-Buttons unten ändern Zoom und Geschwindigkeit."
+            case .english: return "The small mouse buttons below change zoom and speed."
+            case .spanish: return "Los pequeños botones de abajo cambian el zoom y la velocidad."
+            case .french: return "Les petits boutons en bas changent le zoom et la vitesse."
+            case .italian: return "I piccoli pulsanti in basso cambiano zoom e velocità."
+            case .portuguese: return "Os pequenos botões abaixo alteram o zoom e a velocidade."
+            }
+        case .understood:
+            switch language {
+            case .german: return "Verstanden"
+            case .english: return "Got it"
+            case .spanish: return "Entendido"
+            case .french: return "Compris"
+            case .italian: return "Capito"
+            case .portuguese: return "Entendi"
+            }
+        case .zoomOut:
+            switch language {
+            case .german: return "Herauszoomen"
+            case .english: return "Zoom out"
+            case .spanish: return "Alejar"
+            case .french: return "Zoom arrière"
+            case .italian: return "Riduci zoom"
+            case .portuguese: return "Diminuir zoom"
+            }
+        case .zoomIn:
+            switch language {
+            case .german: return "Hineinzoomen"
+            case .english: return "Zoom in"
+            case .spanish: return "Acercar"
+            case .french: return "Zoom avant"
+            case .italian: return "Aumenta zoom"
+            case .portuguese: return "Aumentar zoom"
+            }
+        case .slowDown:
+            switch language {
+            case .german: return "Simulation verlangsamen"
+            case .english: return "Slow down simulation"
+            case .spanish: return "Reducir la velocidad"
+            case .french: return "Ralentir la simulation"
+            case .italian: return "Rallenta simulazione"
+            case .portuguese: return "Reduzir a simulação"
+            }
+        case .speedUp:
+            switch language {
+            case .german: return "Simulation beschleunigen"
+            case .english: return "Speed up simulation"
+            case .spanish: return "Aumentar la velocidad"
+            case .french: return "Accélérer la simulation"
+            case .italian: return "Accelera simulazione"
+            case .portuguese: return "Acelerar a simulação"
+            }
+        case .loading:
+            switch language {
+            case .german: return "Lädt ..."
+            case .english: return "Loading ..."
+            case .spanish: return "Cargando ..."
+            case .french: return "Chargement ..."
+            case .italian: return "Caricamento ..."
+            case .portuguese: return "Carregando ..."
+            }
+        }
+    }
+}
+
+extension FocusTarget {
+    func displayName(for language: AppLanguage) -> String {
+        switch self {
+        case .sun:
+            switch language {
+            case .german: return "Sonne"
+            case .english: return "Sun"
+            case .spanish: return "Sol"
+            case .french: return "Soleil"
+            case .italian: return "Sole"
+            case .portuguese: return "Sol"
+            }
+        case .mercury:
+            switch language {
+            case .german: return "Merkur"
+            case .english: return "Mercury"
+            case .spanish: return "Mercurio"
+            case .french: return "Mercure"
+            case .italian: return "Mercurio"
+            case .portuguese: return "Mercúrio"
+            }
+        case .venus:
+            switch language {
+            case .german: return "Venus"
+            case .english: return "Venus"
+            case .spanish: return "Venus"
+            case .french: return "Vénus"
+            case .italian: return "Venere"
+            case .portuguese: return "Vênus"
+            }
+        case .earth:
+            switch language {
+            case .german: return "Erde"
+            case .english: return "Earth"
+            case .spanish: return "Tierra"
+            case .french: return "Terre"
+            case .italian: return "Terra"
+            case .portuguese: return "Terra"
+            }
+        case .moon:
+            switch language {
+            case .german: return "Mond"
+            case .english: return "Moon"
+            case .spanish: return "Luna"
+            case .french: return "Lune"
+            case .italian: return "Luna"
+            case .portuguese: return "Lua"
+            }
+        case .mars:
+            switch language {
+            case .german: return "Mars"
+            case .english: return "Mars"
+            case .spanish: return "Marte"
+            case .french: return "Mars"
+            case .italian: return "Marte"
+            case .portuguese: return "Marte"
+            }
+        case .jupiter:
+            switch language {
+            case .german: return "Jupiter"
+            case .english: return "Jupiter"
+            case .spanish: return "Júpiter"
+            case .french: return "Jupiter"
+            case .italian: return "Giove"
+            case .portuguese: return "Júpiter"
+            }
+        case .saturn:
+            switch language {
+            case .german: return "Saturn"
+            case .english: return "Saturn"
+            case .spanish: return "Saturno"
+            case .french: return "Saturne"
+            case .italian: return "Saturno"
+            case .portuguese: return "Saturno"
+            }
+        case .uranus:
+            switch language {
+            case .german: return "Uranus"
+            case .english: return "Uranus"
+            case .spanish: return "Urano"
+            case .french: return "Uranus"
+            case .italian: return "Urano"
+            case .portuguese: return "Urano"
+            }
+        case .neptune:
+            switch language {
+            case .german: return "Neptun"
+            case .english: return "Neptune"
+            case .spanish: return "Neptuno"
+            case .french: return "Neptune"
+            case .italian: return "Nettuno"
+            case .portuguese: return "Netuno"
+            }
+        }
     }
 }
 

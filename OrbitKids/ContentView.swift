@@ -91,10 +91,15 @@ final class AppState {
 
 struct LoadingView: View {
     @StateObject private var driver = DisplayLinkDriver()
+    @AppStorage("selectedLanguage") private var selectedLanguageRawValue = AppLanguage.systemDefault.rawValue
+
+    private var currentLanguage: AppLanguage {
+        AppLanguage(rawValue: selectedLanguageRawValue) ?? .systemDefault
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.black.ignoresSafeArea()
+            Color.black
 
             VStack {
                 Spacer(minLength: 0)
@@ -106,7 +111,7 @@ struct LoadingView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                         .shadow(color: .white.opacity(0.08), radius: 8, y: 4)
 
-                    Text("Lädt …")
+                    Text(LocalizedTextKey.loading.text(for: currentLanguage))
                         .foregroundStyle(.white)
                         .font(.headline)
                 }
@@ -121,6 +126,7 @@ struct LoadingView: View {
                 )
                 .ignoresSafeArea(edges: .bottom)
         }
+        .ignoresSafeArea()
     }
 }
 
