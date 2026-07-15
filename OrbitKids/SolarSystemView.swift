@@ -49,6 +49,12 @@ struct SolarSystemView: View {
     @State private var showStartSequence = true
     @State private var showGestureHelp = false
     @State private var showLanguagePicker = false
+    @State private var gestureFeedback: GestureFeedbackKind?
+    @State private var gestureFeedbackAngle: Angle = .zero
+    @State private var gestureFeedbackID = UUID()
+    @State private var gestureFeedbackHideTask: Task<Void, Never>?
+    @State private var gestureFeedbackShowsSymbols = true
+    @State private var isMoveGestureActive = false
     @AppStorage("hasSeenGestureHelp") private var hasSeenGestureHelp = false
     @AppStorage("selectedLanguage") private var selectedLanguageRawValue = AppLanguage.systemDefault.rawValue
     private let visibleMovementThreshold: Double = 3.0
@@ -69,6 +75,36 @@ struct SolarSystemView: View {
                 width: panAccum.width / safeZoom + center.x - focusPos.x,
                 height: panAccum.height / safeZoom + center.y - focusPos.y
             )
+            let touchPadSize: CGSize = {
+                #if targetEnvironment(macCatalyst)
+                CGSize(
+                    width: min(max(geo.size.width * 0.24, 104), 168),
+                    height: min(max(geo.size.height * 0.13, 72), 108)
+                )
+                #else
+                CGSize(
+                    width: 150,
+                    height: 72
+                )
+                #endif
+            }()
+            let touchPadTopInset: CGFloat = {
+                #if targetEnvironment(macCatalyst)
+                16
+                #else
+                if geo.size.height > geo.size.width {
+                    42
+                } else if UIDevice.current.userInterfaceIdiom == .pad {
+                    34
+                } else {
+                    20
+                }
+                #endif
+            }()
+            let touchPadCenter = CGPoint(
+                x: geo.size.width - geo.safeAreaInsets.trailing - touchPadSize.width / 2 - 16,
+                y: geo.safeAreaInsets.top + touchPadSize.height / 2 + touchPadTopInset
+            )
 
             ZStack {
 
@@ -84,7 +120,10 @@ struct SolarSystemView: View {
                     zoom: $zoom,
                     logSpeed: $logSpeed,
                     minLogSpeed: minLogSpeed,
-                    maxLogSpeed: maxLogSpeed
+                    maxLogSpeed: maxLogSpeed,
+                    onGestureFeedback: { kind, location in
+                        showGestureFeedback(kind, at: location)
+                    }
                 ) {
                     solarSystemContent(center: center, simDays: simDays)
                         .frame(width: geo.size.width, height: geo.size.height)
@@ -96,6 +135,10 @@ struct SolarSystemView: View {
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 12)
                         .onChanged { value in
+                            if !isMoveGestureActive {
+                                isMoveGestureActive = true
+                            }
+                            showGestureFeedback(.pan, at: value.location, hideDelay: 1.20)
                             panAccum = CGSize(
                                 width: panBase.width + value.translation.width,
                                 height: panBase.height + value.translation.height
@@ -106,9 +149,25 @@ struct SolarSystemView: View {
                                 width: panBase.width + value.translation.width,
                                 height: panBase.height + value.translation.height
                             )
+                            isMoveGestureActive = false
+                            hideGestureFeedback()
                         }
                 )
                 .background(Color.black.ignoresSafeArea())
+
+                touchPadOverlay
+                    .frame(width: touchPadSize.width, height: touchPadSize.height)
+                    .position(touchPadCenter)
+                    .allowsHitTesting(false)
+                    .zIndex(3)
+
+                if let gestureFeedback {
+                    gestureFeedbackOverlay(for: gestureFeedback, touchPadSize: touchPadSize)
+                        .id(gestureFeedbackID)
+                        .position(touchPadCenter)
+                        .allowsHitTesting(false)
+                        .zIndex(4)
+                }
 
                 // UI-Overlay
                 VStack {
@@ -147,6 +206,7 @@ struct SolarSystemView: View {
                             systemImage: "minus.magnifyingglass",
                             accessibilityLabel: localizedText(.zoomOut)
                         ) {
+                            showGestureFeedback(.zoomOut, showsSymbols: false)
                             adjustZoom(by: 0.992)
                         }
 
@@ -154,6 +214,7 @@ struct SolarSystemView: View {
                             systemImage: "plus.magnifyingglass",
                             accessibilityLabel: localizedText(.zoomIn)
                         ) {
+                            showGestureFeedback(.zoomIn, showsSymbols: false)
                             adjustZoom(by: 1.008)
                         }
 
@@ -161,6 +222,7 @@ struct SolarSystemView: View {
                             systemImage: "backward.fill",
                             accessibilityLabel: localizedText(.slowDown)
                         ) {
+                            showGestureFeedback(.speedDown, showsSymbols: false)
                             adjustSpeed(by: -0.03)
                         }
 
@@ -168,6 +230,7 @@ struct SolarSystemView: View {
                             systemImage: "forward.fill",
                             accessibilityLabel: localizedText(.speedUp)
                         ) {
+                            showGestureFeedback(.speedUp, showsSymbols: false)
                             adjustSpeed(by: 0.03)
                         }
                         #endif
@@ -219,6 +282,7 @@ struct SolarSystemView: View {
         .onAppear { startDisplayLink() }
         .onDisappear {
             displayLink?.invalidate()
+            gestureFeedbackHideTask?.cancel()
             #if targetEnvironment(macCatalyst)
             stopMouseControlRepeat()
             #endif
@@ -379,6 +443,144 @@ struct SolarSystemView: View {
         key.text(for: currentLanguage)
     }
 
+    private func showGestureFeedback(
+        _ kind: GestureFeedbackKind,
+        angle: Angle? = nil,
+        at location: CGPoint? = nil,
+        autoHide: Bool = true,
+        showsSymbols: Bool = true,
+        hideDelay: TimeInterval = 0.65
+    ) {
+        _ = location
+        if isMoveGestureActive && kind != .pan {
+            return
+        }
+
+        if let angle {
+            gestureFeedbackAngle = angle
+        }
+
+        let isContinuingPan = kind == .pan && gestureFeedback == .pan
+
+        gestureFeedback = kind
+        gestureFeedbackShowsSymbols = showsSymbols
+        if !isContinuingPan {
+            gestureFeedbackID = UUID()
+        }
+
+        gestureFeedbackHideTask?.cancel()
+        guard autoHide else { return }
+
+        gestureFeedbackHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(hideDelay * 1_000_000_000))
+            if !Task.isCancelled {
+                if kind == .pan {
+                    isMoveGestureActive = false
+                }
+                gestureFeedback = nil
+            }
+        }
+    }
+
+    private func hideGestureFeedback() {
+        gestureFeedbackHideTask?.cancel()
+        gestureFeedbackHideTask = nil
+        isMoveGestureActive = false
+        gestureFeedback = nil
+    }
+
+    private var touchPadOverlay: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.white.opacity(0.075))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(controlBlue.opacity(0.42), lineWidth: 1.2)
+            )
+            .shadow(color: Color.black.opacity(0.25), radius: 4, y: 2)
+    }
+
+    private func quantizedPanAngle(for translation: CGSize) -> Angle {
+        let distance = hypot(translation.width, translation.height)
+        guard distance > 4 else { return gestureFeedbackAngle }
+
+        let radians = atan2(translation.height, translation.width)
+        let step = Double.pi / 4
+        return .radians((radians / step).rounded() * step)
+    }
+
+    private func gestureFeedbackOverlay(for kind: GestureFeedbackKind, touchPadSize: CGSize) -> some View {
+        ZStack {
+            if gestureFeedbackShowsSymbols {
+                Group {
+                    switch kind {
+                    case .pan:
+                        GesturePanFeedbackView(color: controlBlue)
+                    case .speedUp:
+                        GestureSpeedFeedbackView(color: controlBlue, isIncreasing: true)
+                    case .speedDown:
+                        GestureSpeedFeedbackView(color: controlBlue, isIncreasing: false)
+                    case .zoomIn:
+                        GestureZoomFeedbackView(color: controlBlue, isIncreasing: true)
+                    case .zoomOut:
+                        GestureZoomFeedbackView(color: controlBlue, isIncreasing: false)
+                    case .focus:
+                        GestureFocusFeedbackView(color: controlBlue)
+                    }
+                }
+                .offset(y: gestureSymbolVerticalOffset)
+            }
+
+            VStack {
+                if gestureFeedbackShowsSymbols {
+                    Spacer()
+                }
+                Text(gestureFeedbackTitle(for: kind))
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .shadow(color: Color.black.opacity(0.35), radius: 1, y: 1)
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, gestureFeedbackTextBottomPadding)
+            }
+        }
+        .frame(width: touchPadSize.width, height: touchPadSize.height)
+        .transition(.opacity)
+    }
+
+    private var gestureSymbolVerticalOffset: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        0
+        #else
+        -5
+        #endif
+    }
+
+    private var gestureFeedbackTextBottomPadding: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        5
+        #else
+        3
+        #endif
+    }
+
+    private func gestureFeedbackTitle(for kind: GestureFeedbackKind) -> String {
+        switch kind {
+        case .pan:
+            return "Move"
+        case .speedUp:
+            return "Speed up"
+        case .speedDown:
+            return "Speed down"
+        case .zoomIn:
+            return "Zoom in"
+        case .zoomOut:
+            return "Zoom out"
+        case .focus:
+            return "Focus"
+        }
+    }
+
     private var languagePickerOverlay: some View {
         ZStack {
             Color.black.opacity(0.55)
@@ -390,7 +592,7 @@ struct SolarSystemView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text(localizedText(.chooseLanguage))
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
 
                 VStack(spacing: 8) {
                     ForEach(AppLanguage.allCases) { language in
@@ -400,7 +602,7 @@ struct SolarSystemView: View {
                         } label: {
                             HStack {
                                 Text(language.displayName)
-                                    .foregroundStyle(.black)
+                                    .foregroundStyle(.white)
                                 Spacer()
                                 if language == currentLanguage {
                                     Image(systemName: "checkmark")
@@ -412,7 +614,7 @@ struct SolarSystemView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.gray.opacity(0.14))
+                                    .fill(Color.white.opacity(language == currentLanguage ? 0.14 : 0.08))
                             )
                         }
                         .buttonStyle(.plain)
@@ -421,11 +623,15 @@ struct SolarSystemView: View {
             }
             .padding(22)
             .frame(maxWidth: 340)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.black.opacity(0.52))
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(controlBlue.opacity(0.42), lineWidth: 1.2)
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 8, y: 4)
             .padding(.horizontal, 24)
             .accessibilityAddTraits(.isModal)
         }
@@ -442,7 +648,7 @@ struct SolarSystemView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text(localizedText(.gestureControlsTitle))
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
 
                 VStack(alignment: .leading, spacing: 14) {
                     gestureHelpRow(
@@ -481,17 +687,21 @@ struct SolarSystemView: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color.gray.opacity(0.22))
-                .foregroundStyle(.black)
+                .tint(Color.white.opacity(0.10))
+                .foregroundStyle(.white)
                 .padding(.top, 4)
             }
             .padding(22)
             .frame(maxWidth: 420)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.black.opacity(0.52))
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(controlBlue.opacity(0.42), lineWidth: 1.2)
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 8, y: 4)
             .padding(.horizontal, 24)
             .accessibilityAddTraits(.isModal)
         }
@@ -540,10 +750,10 @@ struct SolarSystemView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(.headline)
-                .foregroundStyle(.black)
+                .foregroundStyle(.white)
             Text(detail)
                 .font(.subheadline)
-                .foregroundStyle(.black.opacity(0.72))
+                .foregroundStyle(.white.opacity(0.76))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -620,6 +830,7 @@ struct SolarSystemView: View {
     }
 
     private func select(_ target: FocusTarget) {
+        showGestureFeedback(.focus)
         focus = target
         focusedTarget = target
         panBase = .zero
@@ -1224,6 +1435,164 @@ extension FocusTarget {
     }
 }
 
+// MARK: - Gesture Feedback
+
+private struct GesturePanFeedbackView: View {
+    let color: Color
+
+    var body: some View {
+        Circle()
+            .fill(color.opacity(0.28))
+            .overlay(
+                Circle()
+                    .stroke(color.opacity(0.55), lineWidth: 1.5)
+            )
+            .frame(width: 30, height: 30)
+        .frame(width: 72, height: 72)
+    }
+}
+
+private struct GestureSpeedFeedbackView: View {
+    let color: Color
+    let isIncreasing: Bool
+
+    private var fingerSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        30
+        #else
+        27
+        #endif
+    }
+
+    private var arrowSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        14
+        #else
+        12
+        #endif
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            fingerFeedback
+            fingerFeedback
+        }
+    }
+
+    private var fingerFeedback: some View {
+        VStack(spacing: 4) {
+            if isIncreasing {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: arrowSize, weight: .bold))
+                    .foregroundStyle(color)
+            }
+
+            Circle()
+                .fill(color.opacity(0.28))
+                .overlay(
+                    Circle()
+                        .stroke(color.opacity(0.55), lineWidth: 1.5)
+                )
+                .frame(width: fingerSize, height: fingerSize)
+
+            if !isIncreasing {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: arrowSize, weight: .bold))
+                    .foregroundStyle(color)
+            }
+        }
+    }
+}
+
+private struct GestureZoomFeedbackView: View {
+    let color: Color
+    let isIncreasing: Bool
+
+    private var fingerSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        30
+        #else
+        27
+        #endif
+    }
+
+    private var arrowSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        14
+        #else
+        12
+        #endif
+    }
+
+    var body: some View {
+        HStack(spacing: 18) {
+            fingerFeedback(isLeft: true)
+            fingerFeedback(isLeft: false)
+        }
+    }
+
+    private func fingerFeedback(isLeft: Bool) -> some View {
+        HStack(spacing: 4) {
+            if isLeft && isIncreasing {
+                arrow("arrow.left")
+            } else if isLeft && !isIncreasing {
+                arrow("arrow.right")
+            }
+
+            Circle()
+                .fill(color.opacity(0.28))
+                .overlay(
+                    Circle()
+                        .stroke(color.opacity(0.55), lineWidth: 1.5)
+                )
+                .frame(width: fingerSize, height: fingerSize)
+
+            if !isLeft && isIncreasing {
+                arrow("arrow.right")
+            } else if !isLeft && !isIncreasing {
+                arrow("arrow.left")
+            }
+        }
+    }
+
+    private func arrow(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: arrowSize, weight: .bold))
+            .foregroundStyle(color)
+    }
+}
+
+private struct GestureFocusFeedbackView: View {
+    let color: Color
+
+    private var outerSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        52
+        #else
+        38
+        #endif
+    }
+
+    private var innerSize: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        18
+        #else
+        13
+        #endif
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(0.60), lineWidth: 3)
+                .frame(width: outerSize, height: outerSize)
+            Circle()
+                .fill(color.opacity(0.25))
+                .frame(width: innerSize, height: innerSize)
+        }
+    }
+}
+
 // MARK: - DisplayLink Proxy
 
 class DisplayLinkProxy {
@@ -1275,4 +1644,3 @@ private struct BottomHalf: Shape {
         return p
     }
 }
-
