@@ -57,6 +57,7 @@ struct SolarSystemView: View {
     @State private var isMoveGestureActive = false
     @AppStorage("hasSeenGestureHelp") private var hasSeenGestureHelp = false
     @AppStorage("selectedLanguage") private var selectedLanguageRawValue = AppLanguage.systemDefault.rawValue
+    @AppStorage("showGestureVisualizer") private var showGestureVisualizer = true
     private let visibleMovementThreshold: Double = 3.0
 
     @State private var mouseControlRepeatTask: Task<Void, Never>?
@@ -133,6 +134,12 @@ struct SolarSystemView: View {
                 }
                 .contentShape(Rectangle())
                 .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded {
+                            toggleGestureVisualizer()
+                        }
+                )
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 12)
                         .onChanged { value in
                             if !isMoveGestureActive {
@@ -155,18 +162,20 @@ struct SolarSystemView: View {
                 )
                 .background(Color.black.ignoresSafeArea())
 
-                touchPadOverlay
-                    .frame(width: touchPadSize.width, height: touchPadSize.height)
-                    .position(touchPadCenter)
-                    .allowsHitTesting(false)
-                    .zIndex(3)
-
-                if let gestureFeedback {
-                    gestureFeedbackOverlay(for: gestureFeedback, touchPadSize: touchPadSize)
-                        .id(gestureFeedbackID)
+                if showGestureVisualizer {
+                    touchPadOverlay
+                        .frame(width: touchPadSize.width, height: touchPadSize.height)
                         .position(touchPadCenter)
                         .allowsHitTesting(false)
-                        .zIndex(4)
+                        .zIndex(3)
+
+                    if let gestureFeedback {
+                        gestureFeedbackOverlay(for: gestureFeedback, touchPadSize: touchPadSize)
+                            .id(gestureFeedbackID)
+                            .position(touchPadCenter)
+                            .allowsHitTesting(false)
+                            .zIndex(4)
+                    }
                 }
 
                 // UI-Overlay
@@ -443,6 +452,41 @@ struct SolarSystemView: View {
         key.text(for: currentLanguage)
     }
 
+    #if targetEnvironment(macCatalyst)
+    private var catalystPanHelpDetail: String {
+        switch currentLanguage {
+        case .german: return "Mit einem Finger oder Maus ziehen"
+        case .english: return "Drag with one finger or the mouse"
+        case .spanish: return "Arrastra con un dedo o con el ratón"
+        case .french: return "Fais glisser avec un doigt ou la souris"
+        case .italian: return "Trascina con un dito o con il mouse"
+        case .portuguese: return "Arraste com um dedo ou com o mouse"
+        }
+    }
+
+    private var catalystSpeedHelpDetail: String {
+        switch currentLanguage {
+        case .german: return "Mit zwei Fingern nach oben oder unten ziehen oder auf"
+        case .english: return "Drag up or down with two fingers or click"
+        case .spanish: return "Arrastra hacia arriba o abajo con dos dedos o pulsa"
+        case .french: return "Fais glisser deux doigts vers le haut ou le bas ou clique"
+        case .italian: return "Trascina su o giù con due dita o fai clic"
+        case .portuguese: return "Arraste para cima ou para baixo com dois dedos ou clique"
+        }
+    }
+
+    private var catalystZoomHelpDetail: String {
+        switch currentLanguage {
+        case .german: return "Mit zwei Fingern nach innen oder außen bewegen oder auf"
+        case .english: return "Move two fingers inward or outward or click"
+        case .spanish: return "Mueve dos dedos hacia dentro o hacia fuera o pulsa"
+        case .french: return "Rapproche ou écarte deux doigts ou clique"
+        case .italian: return "Avvicina o allontana due dita o fai clic"
+        case .portuguese: return "Aproxime ou afaste dois dedos ou clique"
+        }
+    }
+    #endif
+
     private func showGestureFeedback(
         _ kind: GestureFeedbackKind,
         angle: Angle? = nil,
@@ -452,6 +496,8 @@ struct SolarSystemView: View {
         hideDelay: TimeInterval = 0.65
     ) {
         _ = location
+        guard showGestureVisualizer else { return }
+
         if isMoveGestureActive && kind != .pan {
             return
         }
@@ -479,6 +525,13 @@ struct SolarSystemView: View {
                 }
                 gestureFeedback = nil
             }
+        }
+    }
+
+    private func toggleGestureVisualizer() {
+        showGestureVisualizer.toggle()
+        if !showGestureVisualizer {
+            hideGestureFeedback()
         }
     }
 
@@ -651,6 +704,35 @@ struct SolarSystemView: View {
                     .foregroundStyle(.white)
 
                 VStack(alignment: .leading, spacing: 14) {
+                    #if targetEnvironment(macCatalyst)
+                    catalystGestureHelpRow(
+                        icon: "hand.draw.fill",
+                        title: localizedText(.panTitle),
+                        detail: catalystPanHelpDetail,
+                        trailingIcons: ["cursorarrow"]
+                    )
+                    catalystSpeedGestureHelpRow(
+                        title: localizedText(.speedTitle),
+                        detail: catalystSpeedHelpDetail,
+                        trailingIcons: ["backward.fill", "forward.fill"]
+                    )
+                    catalystZoomGestureHelpRow(
+                        title: localizedText(.zoomTitle),
+                        detail: catalystZoomHelpDetail,
+                        trailingIcons: ["minus.magnifyingglass", "plus.magnifyingglass"]
+                    )
+                    catalystFocusGestureHelpRow(
+                        title: localizedText(.focusTitle),
+                        detail: localizedText(.focusDetail),
+                        trailingIcons: ["cursorarrow"]
+                    )
+                    catalystGestureHelpRow(
+                        icon: "hand.tap.fill",
+                        title: localizedText(.gestureVisualizerTitle),
+                        detail: localizedText(.gestureVisualizerDetail),
+                        trailingIcons: ["cursorarrow"]
+                    )
+                    #else
                     gestureHelpRow(
                         icon: "hand.draw.fill",
                         title: localizedText(.panTitle),
@@ -668,12 +750,10 @@ struct SolarSystemView: View {
                         title: localizedText(.focusTitle),
                         detail: localizedText(.focusDetail)
                     )
-
-                    #if targetEnvironment(macCatalyst)
                     gestureHelpRow(
-                        icon: "cursorarrow",
-                        title: localizedText(.withoutTrackpadTitle),
-                        detail: localizedText(.withoutTrackpadDetail)
+                        icon: "hand.tap.fill",
+                        title: localizedText(.gestureVisualizerTitle),
+                        detail: localizedText(.gestureVisualizerDetail)
                     )
                     #endif
                 }
@@ -717,6 +797,76 @@ struct SolarSystemView: View {
             gestureHelpText(title: title, detail: detail)
         }
     }
+
+    #if targetEnvironment(macCatalyst)
+    private func catalystGestureHelpRow(
+        icon: String,
+        title: String,
+        detail: String,
+        trailingIcons: [String]
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(controlBlue)
+                .frame(width: 28, height: 28)
+
+            catalystGestureHelpText(title: title, detail: detail, trailingIcons: trailingIcons)
+        }
+    }
+
+    private func catalystSpeedGestureHelpRow(title: String, detail: String, trailingIcons: [String]) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            twoFingerSwipeUpIcon
+                .frame(width: 28, height: 28)
+
+            catalystGestureHelpText(title: title, detail: detail, trailingIcons: trailingIcons)
+        }
+    }
+
+    private func catalystZoomGestureHelpRow(title: String, detail: String, trailingIcons: [String]) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            twoFingerZoomIcon
+                .frame(width: 28, height: 28)
+
+            catalystGestureHelpText(title: title, detail: detail, trailingIcons: trailingIcons)
+        }
+    }
+
+    private func catalystFocusGestureHelpRow(title: String, detail: String, trailingIcons: [String]) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            focusTapIcon
+                .frame(width: 28, height: 28)
+                .compositingGroup()
+
+            catalystGestureHelpText(title: title, detail: detail, trailingIcons: trailingIcons)
+        }
+    }
+
+    private func catalystGestureHelpText(title: String, detail: String, trailingIcons: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            catalystInlineHelpText(detail: detail, trailingIcons: trailingIcons)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func catalystInlineHelpText(detail: String, trailingIcons: [String]) -> Text {
+        if trailingIcons.count == 1, let firstIcon = trailingIcons.first {
+            return Text("\(Text(detail).foregroundStyle(.white.opacity(0.76))) \(Text(Image(systemName: firstIcon)).foregroundStyle(controlBlue))")
+        }
+
+        if trailingIcons.count == 2 {
+            return Text("\(Text(detail).foregroundStyle(.white.opacity(0.76))) \(Text(Image(systemName: trailingIcons[0])).foregroundStyle(controlBlue)) \(Text(Image(systemName: trailingIcons[1])).foregroundStyle(controlBlue))")
+        }
+
+        return Text(detail).foregroundStyle(.white.opacity(0.76))
+    }
+    #endif
 
     private func speedGestureHelpRow(title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1152,6 +1302,8 @@ enum LocalizedTextKey {
     case zoomDetail
     case focusTitle
     case focusDetail
+    case gestureVisualizerTitle
+    case gestureVisualizerDetail
     case withoutTrackpadTitle
     case withoutTrackpadDetail
     case understood
@@ -1183,7 +1335,12 @@ enum LocalizedTextKey {
             }
         case .gestureControlsTitle:
             switch language {
-            case .german: return "Gestensteuerung"
+            case .german:
+                #if targetEnvironment(macCatalyst)
+                return "Gestensteuerung Trackpad oder Maus"
+                #else
+                return "Gestensteuerung"
+                #endif
             case .english: return "Gesture controls"
             case .spanish: return "Controles gestuales"
             case .french: return "Commandes gestuelles"
@@ -1261,6 +1418,60 @@ enum LocalizedTextKey {
             case .french: return "Touche un astre ou choisis un nom en bas."
             case .italian: return "Tocca un astro o scegli un nome in basso."
             case .portuguese: return "Toque em um astro ou escolha um nome abaixo."
+            }
+        case .gestureVisualizerTitle:
+            switch language {
+            case .german:
+                return "Doppeltippen"
+            case .english:
+                return "Double-tap"
+            case .spanish:
+                return "Doble toque"
+            case .french:
+                return "Double toucher"
+            case .italian:
+                return "Doppio tocco"
+            case .portuguese:
+                return "Toque duplo"
+            }
+        case .gestureVisualizerDetail:
+            switch language {
+            case .german:
+                #if targetEnvironment(macCatalyst)
+                return "Trackpad Hilfsfenster ein/aus"
+                #else
+                return "Gesten-Hilfsfenster ein/aus"
+                #endif
+            case .english:
+                #if targetEnvironment(macCatalyst)
+                return "Turn the trackpad helper on/off."
+                #else
+                return "Turn the gesture helper on/off."
+                #endif
+            case .spanish:
+                #if targetEnvironment(macCatalyst)
+                return "Activa o desactiva la ayuda del trackpad."
+                #else
+                return "Activa o desactiva la ayuda de gestos."
+                #endif
+            case .french:
+                #if targetEnvironment(macCatalyst)
+                return "Active ou désactive l’aide du trackpad."
+                #else
+                return "Active ou désactive l’aide des gestes."
+                #endif
+            case .italian:
+                #if targetEnvironment(macCatalyst)
+                return "Attiva o disattiva l’aiuto del trackpad."
+                #else
+                return "Attiva o disattiva l’aiuto dei gesti."
+                #endif
+            case .portuguese:
+                #if targetEnvironment(macCatalyst)
+                return "Ativa ou desativa a ajuda do trackpad."
+                #else
+                return "Ativa ou desativa a ajuda de gestos."
+                #endif
             }
         case .withoutTrackpadTitle:
             switch language {
