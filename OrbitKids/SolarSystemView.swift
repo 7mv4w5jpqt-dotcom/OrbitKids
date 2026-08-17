@@ -40,7 +40,11 @@ struct SolarSystemView: View {
 
     @State private var simDays: Double = 0
     @State private var accumulator: TimeInterval = 0
+    #if targetEnvironment(macCatalyst)
+    private let fixedDT: TimeInterval = 1.0 / 120.0
+    #else
     private let fixedDT: TimeInterval = 1.0 / 60.0
+    #endif
     private let maxFrameDT: TimeInterval = 1.0 / 15.0
 
     @State private var displayLink: CADisplayLink?
@@ -196,6 +200,7 @@ struct SolarSystemView: View {
                             }
                             .accessibilityLabel(localizedText(.showGestureHelp))
                             .accessibilityAddTraits(.isButton)
+                            .padding(.trailing, 4)
 
                         Image(systemName: "dollarsign.circle")
                             .font(.system(size: controlIconSize, weight: .semibold))
@@ -223,39 +228,40 @@ struct SolarSystemView: View {
                             .accessibilityLabel(localizedText(.chooseLanguage))
                             .accessibilityAddTraits(.isButton)
 
-                        #if targetEnvironment(macCatalyst)
-                        catalystMouseButton(
-                            systemImage: "minus.magnifyingglass",
-                            accessibilityLabel: localizedText(.zoomOut)
-                        ) {
-                            showGestureFeedback(.zoomOut, showsSymbols: false)
-                            adjustZoom(by: 0.992)
-                        }
+                        if shouldShowStepControls {
+                            stepControlButton(
+                                systemImage: "minus.magnifyingglass",
+                                accessibilityLabel: localizedText(.zoomOut)
+                            ) {
+                                showGestureFeedback(.zoomOut, showsSymbols: false)
+                                adjustZoom(by: 0.992)
+                            }
+                            .padding(.trailing, -4)
 
-                        catalystMouseButton(
-                            systemImage: "plus.magnifyingglass",
-                            accessibilityLabel: localizedText(.zoomIn)
-                        ) {
-                            showGestureFeedback(.zoomIn, showsSymbols: false)
-                            adjustZoom(by: 1.008)
-                        }
+                            stepControlButton(
+                                systemImage: "plus.magnifyingglass",
+                                accessibilityLabel: localizedText(.zoomIn)
+                            ) {
+                                showGestureFeedback(.zoomIn, showsSymbols: false)
+                                adjustZoom(by: 1.008)
+                            }
 
-                        catalystMouseButton(
-                            systemImage: "backward.fill",
-                            accessibilityLabel: localizedText(.slowDown)
-                        ) {
-                            showGestureFeedback(.speedDown, showsSymbols: false)
-                            adjustSpeed(by: -0.03)
-                        }
+                            stepControlButton(
+                                systemImage: "backward.fill",
+                                accessibilityLabel: localizedText(.slowDown)
+                            ) {
+                                showGestureFeedback(.speedDown, showsSymbols: false)
+                                adjustSpeed(by: -0.03)
+                            }
 
-                        catalystMouseButton(
-                            systemImage: "forward.fill",
-                            accessibilityLabel: localizedText(.speedUp)
-                        ) {
-                            showGestureFeedback(.speedUp, showsSymbols: false)
-                            adjustSpeed(by: 0.03)
+                            stepControlButton(
+                                systemImage: "forward.fill",
+                                accessibilityLabel: localizedText(.speedUp)
+                            ) {
+                                showGestureFeedback(.speedUp, showsSymbols: false)
+                                adjustSpeed(by: 0.03)
+                            }
                         }
-                        #endif
 
                         ForEach(FocusTarget.allCases, id: \.self) { target in
                             Button {
@@ -312,9 +318,7 @@ struct SolarSystemView: View {
         .onDisappear {
             displayLink?.invalidate()
             gestureFeedbackHideTask?.cancel()
-            #if targetEnvironment(macCatalyst)
             stopMouseControlRepeat()
-            #endif
         }
         .onChange(of: simDays) { _, newValue in
             if showStartSequence && newValue > visibleMovementThreshold {
@@ -370,11 +374,7 @@ struct SolarSystemView: View {
     }
 
     private var bottomButtonSpacing: CGFloat {
-        #if targetEnvironment(macCatalyst)
         8
-        #else
-        4
-        #endif
     }
 
     private var bottomButtonFont: Font {
@@ -386,27 +386,15 @@ struct SolarSystemView: View {
     }
 
     private var controlIconSize: CGFloat {
-        #if targetEnvironment(macCatalyst)
         28
-        #else
-        24
-        #endif
     }
 
     private var controlIconFrameSize: CGFloat {
-        #if targetEnvironment(macCatalyst)
         44
-        #else
-        30
-        #endif
     }
 
     private var controlIconVerticalOffset: CGFloat {
-        #if targetEnvironment(macCatalyst)
         -5
-        #else
-        0
-        #endif
     }
 
     private var dayCounterFont: Font {
@@ -437,18 +425,25 @@ struct SolarSystemView: View {
         .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
     }
 
-    #if targetEnvironment(macCatalyst)
-    private func catalystMouseButton(
+    private var shouldShowStepControls: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad
+        #endif
+    }
+
+    private func stepControlButton(
         systemImage: String,
         accessibilityLabel: String,
         action: @escaping () -> Void
     ) -> some View {
         Image(systemName: systemImage)
-            .font(.system(size: 28, weight: .semibold))
+            .font(.system(size: controlIconSize, weight: .semibold))
             .foregroundStyle(controlBlue)
-            .frame(width: 44, height: 44)
+            .frame(width: controlIconFrameSize, height: controlIconFrameSize)
             .contentShape(Rectangle())
-            .offset(y: -5)
+            .offset(y: controlIconVerticalOffset)
             .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -462,7 +457,6 @@ struct SolarSystemView: View {
             .accessibilityLabel(accessibilityLabel)
             .accessibilityAddTraits(.isButton)
     }
-    #endif
 
     private func localizedText(_ key: LocalizedTextKey) -> String {
         key.text(for: currentLanguage)
@@ -1011,7 +1005,6 @@ struct SolarSystemView: View {
         logSpeed = min(max(logSpeed + delta, minLogSpeed), maxLogSpeed)
     }
 
-    #if targetEnvironment(macCatalyst)
     private func startMouseControlRepeat(_ action: @escaping () -> Void) {
         guard mouseControlRepeatTask == nil else { return }
 
@@ -1027,7 +1020,6 @@ struct SolarSystemView: View {
         mouseControlRepeatTask?.cancel()
         mouseControlRepeatTask = nil
     }
-    #endif
 
     // MARK: - Sonnensystem Inhalt
 

@@ -5,10 +5,13 @@ struct TipJarView: View {
     let language: AppLanguage
     let onClose: () -> Void
 
+    @Environment(\.purchase) private var purchaseAction
+
     @State private var products: [Product] = []
     @State private var isLoading = true
     @State private var purchaseState: TipPurchaseState?
     @State private var purchasingProductID: String?
+    @State private var showCelebration = false
 
     private let productIDs = [
         "orbitkids.tip.small",
@@ -93,6 +96,12 @@ struct TipJarView: View {
             .shadow(color: Color.black.opacity(0.35), radius: 8, y: 4)
             .padding(.horizontal, 24)
             .accessibilityAddTraits(.isModal)
+
+            if showCelebration {
+                TipCelebrationView()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .task {
             await loadProducts()
@@ -161,13 +170,14 @@ struct TipJarView: View {
         defer { purchasingProductID = nil }
 
         do {
-            let result = try await product.purchase()
+            let result = try await purchaseAction(product)
 
             switch result {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
                 await transaction.finish()
                 purchaseState = .success
+                showPurchaseCelebration()
             case .pending:
                 purchaseState = .pending
             case .userCancelled:
@@ -180,6 +190,19 @@ struct TipJarView: View {
         }
     }
 
+    private func showPurchaseCelebration() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showCelebration = true
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_600_000_000)
+            withAnimation(.easeOut(duration: 0.35)) {
+                showCelebration = false
+            }
+        }
+    }
+
     private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
         switch result {
         case .verified(let safe):
@@ -187,6 +210,220 @@ struct TipJarView: View {
         case .unverified:
             throw StoreKitVerificationError.failed
         }
+    }
+}
+
+private struct TipCelebrationView: View {
+    @State private var fireworkFlightProgress: CGFloat = 0
+    @State private var explosionsStarted = false
+    @State private var particlesFalling = false
+
+    private let flightDuration: TimeInterval = 1.72
+    private let explosionDelay: TimeInterval = 1.65
+    private let launchStagger: TimeInterval = 0.13
+
+    private let explosionOffsets = [
+        CGSize(width: -126, height: 26),
+        CGSize(width: 0, height: -18),
+        CGSize(width: 126, height: 30)
+    ]
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(0..<explosionOffsets.count, id: \.self) { index in
+                    let launchPoint = CGPoint(x: geo.size.width / 2, y: geo.size.height + 34)
+                    let x = geo.size.width / 2 + explosionOffsets[index].width
+                    let y = geo.size.height * 0.32 + explosionOffsets[index].height
+                    let center = CGPoint(x: x, y: y)
+                    let flightEnd = CGPoint(x: x, y: y + 26)
+
+                    TipFireworkLightView(
+                        start: launchPoint,
+                        end: flightEnd,
+                        progress: fireworkFlightProgress,
+                        isHidden: explosionsStarted,
+                        flightDuration: flightDuration,
+                        delay: Double(index) * launchStagger
+                    )
+
+                    TipExplosionView(
+                        center: center,
+                        index: index,
+                        color: explosionColor(for: index),
+                        isWhiteBurst: index == 1,
+                        isVisible: explosionsStarted,
+                        isFalling: particlesFalling
+                    )
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .task {
+            withAnimation(.linear(duration: flightDuration)) {
+                fireworkFlightProgress = 1
+            }
+
+            try? await Task.sleep(nanoseconds: UInt64(explosionDelay * 1_000_000_000))
+
+            explosionsStarted = true
+
+            try? await Task.sleep(nanoseconds: 220_000_000)
+
+            withAnimation(.easeIn(duration: 2.25)) {
+                particlesFalling = true
+            }
+        }
+    }
+
+    private func explosionColor(for index: Int) -> Color {
+        switch index {
+        case 0:
+            return .blue
+        case 1:
+            return .white
+        default:
+            return .red
+        }
+    }
+}
+
+private struct TipFireworkLightView: View, Animatable {
+    let start: CGPoint
+    let end: CGPoint
+    var progress: CGFloat
+    let isHidden: Bool
+    let flightDuration: TimeInterval
+    let delay: TimeInterval
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        Circle()
+            .fill(.white)
+            .frame(width: 4, height: 4)
+            .shadow(color: .white, radius: 6)
+            .position(currentPosition)
+            .opacity(isHidden ? 0 : 1)
+            .animation(.easeOut(duration: 0.12), value: isHidden)
+    }
+
+    private var currentPosition: CGPoint {
+        let delayProgress = CGFloat(delay / flightDuration)
+        let delayedProgress = max(0, min(1, (progress - delayProgress) / (1 - delayProgress)))
+        let gravity = gravityForTrajectory(apexTime: 0.76)
+        let initialVelocityY = -2 * gravity * 0.76
+        let x = start.x + (end.x - start.x) * delayedProgress
+        let y = start.y + initialVelocityY * delayedProgress + gravity * delayedProgress * delayedProgress
+        return CGPoint(x: x, y: y)
+    }
+
+    private func gravityForTrajectory(apexTime: CGFloat) -> CGFloat {
+        (end.y - start.y) / (1 - 2 * apexTime)
+    }
+}
+
+private struct TipExplosionView: View {
+    let center: CGPoint
+    let index: Int
+    let color: Color
+    let isWhiteBurst: Bool
+    let isVisible: Bool
+    let isFalling: Bool
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<84, id: \.self) { particle in
+                TipFireworkParticle(
+                    particle: particle,
+                    burstIndex: index,
+                    color: color,
+                    highlightOpacity: isWhiteBurst ? 0.65 : 0.24,
+                    isVisible: isVisible,
+                    isFalling: isFalling
+                )
+            }
+
+            Circle()
+                .fill(color.opacity(0.32))
+                .frame(width: isVisible ? 18 : 4, height: isVisible ? 18 : 4)
+                .blur(radius: 7)
+                .opacity(isVisible ? (isFalling ? 0 : 1) : 0)
+                .animation(.easeOut(duration: 0.26), value: isVisible)
+                .animation(.easeOut(duration: 0.9), value: isFalling)
+        }
+        .position(center)
+    }
+}
+
+private struct TipFireworkParticle: View {
+    let particle: Int
+    let burstIndex: Int
+    let color: Color
+    let highlightOpacity: Double
+    let isVisible: Bool
+    let isFalling: Bool
+
+    private var angle: CGFloat {
+        randomUnit(seed: 11) * .pi * 2
+    }
+
+    private var burstRadius: CGFloat {
+        let nearCore = randomUnit(seed: 23) * randomUnit(seed: 37)
+        return 8 + nearCore * 82
+    }
+
+    private var fallDistance: CGFloat {
+        96 + randomUnit(seed: 53) * 136
+    }
+
+    private var drift: CGFloat {
+        (randomUnit(seed: 71) - 0.5) * 48
+    }
+
+    private var particleOpacity: Double {
+        0.42 + Double(randomUnit(seed: 89)) * 0.58
+    }
+
+    var body: some View {
+        Circle()
+            .fill(color.opacity(particleOpacity))
+            .frame(width: particleSize, height: particleSize)
+            .shadow(color: color.opacity(0.85), radius: 2.5)
+            .overlay(
+                Circle()
+                    .fill(.white.opacity(highlightOpacity * particleOpacity))
+                    .frame(width: max(1, particleSize * 0.38), height: max(1, particleSize * 0.38))
+            )
+            .offset(
+                x: xOffset,
+                y: yOffset
+            )
+            .opacity(isVisible ? (isFalling ? 0 : particleOpacity) : 0)
+            .animation(.easeOut(duration: 0.46).delay(Double(randomUnit(seed: 101)) * 0.08), value: isVisible)
+            .animation(.easeIn(duration: 2.35).delay(Double(randomUnit(seed: 113)) * 0.16), value: isFalling)
+    }
+
+    private var particleSize: CGFloat {
+        1.6 + randomUnit(seed: 131) * 3.2
+    }
+
+    private var xOffset: CGFloat {
+        let burstX = cos(angle) * burstRadius
+        return isFalling ? burstX + drift : (isVisible ? burstX : 0)
+    }
+
+    private var yOffset: CGFloat {
+        let burstY = sin(angle) * burstRadius
+        return isFalling ? burstY + fallDistance : (isVisible ? burstY : 0)
+    }
+
+    private func randomUnit(seed: Int) -> CGFloat {
+        let value = sin(Double((particle + 1) * (burstIndex + 3) * seed)) * 43758.5453
+        return CGFloat(value - floor(value))
     }
 }
 
@@ -230,12 +467,12 @@ enum TipJarText {
         switch self {
         case .title:
             switch language {
-            case .german: return "Entwickler unterstützen 🚀"
-            case .english: return "Support the Developer 🚀"
-            case .spanish: return "Apoyar al desarrollador 🚀"
-            case .french: return "Soutenir le développeur 🚀"
-            case .italian: return "Sostieni lo sviluppatore 🚀"
-            case .portuguese: return "Apoiar o desenvolvedor 🚀"
+            case .german: return "Entwickler unterstützen ✨"
+            case .english: return "Support the Developer ✨"
+            case .spanish: return "Apoyar al desarrollador ✨"
+            case .french: return "Soutenir le développeur ✨"
+            case .italian: return "Sostieni lo sviluppatore ✨"
+            case .portuguese: return "Apoiar o desenvolvedor ✨"
             }
         case .subtitle:
             switch language {
@@ -275,12 +512,12 @@ enum TipJarText {
             }
         case .thankYou:
             switch language {
-            case .german: return "Danke für deine Unterstützung! 🌟"
-            case .english: return "Thank you for your support! 🌟"
-            case .spanish: return "¡Gracias por tu apoyo! 🌟"
-            case .french: return "Merci pour ton soutien ! 🌟"
-            case .italian: return "Grazie per il tuo supporto! 🌟"
-            case .portuguese: return "Obrigado pelo apoio! 🌟"
+            case .german: return "Herzlichen Dank für deine Unterstützung! 🌟"
+            case .english: return "Many heartfelt thanks for your support! 🌟"
+            case .spanish: return "¡Muchísimas gracias por tu apoyo! 🌟"
+            case .french: return "Un grand merci pour ton soutien ! 🌟"
+            case .italian: return "Grazie di cuore per il tuo supporto! 🌟"
+            case .portuguese: return "Muito obrigado pelo apoio! 🌟"
             }
         case .pending:
             switch language {
