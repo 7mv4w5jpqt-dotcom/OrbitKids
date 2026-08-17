@@ -1,0 +1,99 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "de_DE",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "ORBITKIDS-TIPS",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "TIPSMALL",
+      "localizations" : [
+        {
+          "description" : "Unterstützt den Entwickler von OrbitKids.",
+          "displayName" : "Kleiner Kaffee",
+          "locale" : "de_DE"
+        },
+        {
+          "description" : "Supports the developer of OrbitKids.",
+          "displayName" : "Small Coffee",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "orbitkids.tip.small",
+      "referenceName" : "OrbitKids Tip Small",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "3.99",
+      "familyShareable" : false,
+      "internalID" : "TIPMEDIUM",
+      "localizations" : [
+        {
+          "description" : "Unterstützt den Entwickler von OrbitKids.",
+          "displayName" : "Großer Kaffee",
+          "locale" : "de_DE"
+        },
+        {
+          "description" : "Supports the developer of OrbitKids.",
+          "displayName" : "Big Coffee",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "orbitkids.tip.medium",
+      "referenceName" : "OrbitKids Tip Medium",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "TIPLARGE",
+      "localizations" : [
+        {
+          "description" : "Unterstützt den Entwickler von OrbitKids.",
+          "displayName" : "Mittagessen",
+          "locale" : "de_DE"
+        },
+        {
+          "description" : "Supports the developer of OrbitKids.",
+          "displayName" : "Lunch",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "orbitkids.tip.large",
+      "referenceName" : "OrbitKids Tip Large",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "de_DE",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "DEU",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 6,
+    "minor" : 3
+  }
+}

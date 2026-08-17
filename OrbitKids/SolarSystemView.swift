@@ -48,6 +48,7 @@ struct SolarSystemView: View {
     // Startsequenz
     @State private var showStartSequence = true
     @State private var showGestureHelp = false
+    @State private var showTipJar = false
     @State private var showLanguagePicker = false
     @State private var gestureFeedback: GestureFeedbackKind?
     @State private var gestureFeedbackAngle: Angle = .zero
@@ -55,9 +56,8 @@ struct SolarSystemView: View {
     @State private var gestureFeedbackHideTask: Task<Void, Never>?
     @State private var gestureFeedbackShowsSymbols = true
     @State private var isMoveGestureActive = false
-    @AppStorage("hasSeenGestureHelp") private var hasSeenGestureHelp = false
     @AppStorage("selectedLanguage") private var selectedLanguageRawValue = AppLanguage.systemDefault.rawValue
-    @AppStorage("showGestureVisualizer") private var showGestureVisualizer = true
+    @AppStorage("showGestureVisualizer") private var showGestureVisualizer = false
     private let visibleMovementThreshold: Double = 3.0
 
     @State private var mouseControlRepeatTask: Task<Void, Never>?
@@ -197,6 +197,19 @@ struct SolarSystemView: View {
                             .accessibilityLabel(localizedText(.showGestureHelp))
                             .accessibilityAddTraits(.isButton)
 
+                        Image(systemName: "dollarsign.circle")
+                            .font(.system(size: controlIconSize, weight: .semibold))
+                            .foregroundStyle(controlBlue)
+                            .frame(width: controlIconFrameSize, height: controlIconFrameSize)
+                            .contentShape(Rectangle())
+                            .offset(y: controlIconVerticalOffset)
+                            .shadow(color: Color.black.opacity(0.5), radius: 1, y: 1)
+                            .onTapGesture {
+                                showTipJar = true
+                            }
+                            .accessibilityLabel(TipJarText.tipButton.text(for: currentLanguage))
+                            .accessibilityAddTraits(.isButton)
+
                         Image(systemName: "globe")
                             .font(.system(size: controlIconSize, weight: .semibold))
                             .foregroundStyle(controlBlue)
@@ -286,6 +299,13 @@ struct SolarSystemView: View {
                     languagePickerOverlay
                         .zIndex(21)
                 }
+
+                if showTipJar {
+                    TipJarView(language: currentLanguage) {
+                        showTipJar = false
+                    }
+                    .zIndex(22)
+                }
             }
         }
         .onAppear { startDisplayLink() }
@@ -302,10 +322,6 @@ struct SolarSystemView: View {
                     showStartSequence = false
                 }
 
-                if !hasSeenGestureHelp {
-                    showGestureHelp = true
-                    hasSeenGestureHelp = true
-                }
             }
         }
     }
