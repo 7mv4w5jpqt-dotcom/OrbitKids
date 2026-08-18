@@ -512,12 +512,12 @@ enum TipJarText {
             }
         case .thankYou:
             switch language {
-            case .german: return "Herzlichen Dank für deine Unterstützung! 🌟"
-            case .english: return "Many heartfelt thanks for your support! 🌟"
-            case .spanish: return "¡Muchísimas gracias por tu apoyo! 🌟"
-            case .french: return "Un grand merci pour ton soutien ! 🌟"
-            case .italian: return "Grazie di cuore per il tuo supporto! 🌟"
-            case .portuguese: return "Muito obrigado pelo apoio! 🌟"
+            case .german: return "Herzlichen Dank für deine Unterstützung! ❤️"
+            case .english: return "Many heartfelt thanks for your support! ❤️"
+            case .spanish: return "¡Muchísimas gracias por tu apoyo! ❤️"
+            case .french: return "Un grand merci pour ton soutien ! ❤️"
+            case .italian: return "Grazie di cuore per il tuo supporto! ❤️"
+            case .portuguese: return "Muito obrigado pelo apoio! ❤️"
             }
         case .pending:
             switch language {
